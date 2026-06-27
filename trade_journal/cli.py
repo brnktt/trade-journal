@@ -129,8 +129,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not trades:
         print("No trades logged yet.")
         return 0
-    headers = ["date", "session", "setup", "dir", "grade", "pa", "result",
-               "dur", "realR", "leakR", "flags"]
+    headers = ["id", "date", "session", "setup", "dir", "grade", "pa",
+               "result", "dur", "realR", "leakR", "flags"]
     rows = []
     for t in trades:
         flags = ",".join(
@@ -141,13 +141,21 @@ def cmd_list(args: argparse.Namespace) -> int:
             ) if on
         )
         rows.append([
-            t.date, t.session, t.setup or "-", t.direction, t.grade or "-",
-            t.price_action, t.result, t.duration_min or "-",
+            t.id, t.date, t.session, t.setup or "-", t.direction,
+            t.grade or "-", t.price_action, t.result, t.duration_min or "-",
             f"{t.effective_realized_r():+.2f}", f"{t.leak_r():.2f}",
             flags or "-",
         ])
-    print(_render_table(headers, rows, aligns="llllrlllrrl"))
+    print(_render_table(headers, rows, aligns="rllllrlllrrl"))
     return 0
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    if storage.delete(args.id):
+        print(f"Deleted trade {args.id}")
+        return 0
+    print(f"No trade with id {args.id}")
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -182,6 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
     l = sub.add_parser("list", help="show recent trades")
     l.add_argument("-n", type=int, default=20, help="how many to show")
     l.set_defaults(func=cmd_list)
+
+    d = sub.add_parser("delete", help="delete a trade by id")
+    d.add_argument("id", type=int)
+    d.set_defaults(func=cmd_delete)
 
     return p
 

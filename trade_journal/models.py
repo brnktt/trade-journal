@@ -45,6 +45,7 @@ def _fmt(value) -> str:
 @dataclass
 class Trade:
     date: str
+    id: int = 0                  # storage-assigned, incremental; 0 = unsaved
     instrument: str = ""
     timeframe: str = ""
     session: str = "ny am"       # e.g. ny am / ny pm / london
@@ -133,6 +134,7 @@ class Trade:
     # --- (de)serialization ------------------------------------------------
     def to_row(self) -> dict[str, str]:
         return {
+            "id": _fmt(self.id),
             "date": self.date,
             "instrument": self.instrument,
             "timeframe": self.timeframe,
@@ -159,6 +161,7 @@ class Trade:
     @classmethod
     def from_row(cls, row: dict) -> "Trade":
         return cls(
+            id=_to_int(row.get("id")),
             date=row.get("date", ""),
             instrument=row.get("instrument", ""),
             timeframe=row.get("timeframe", ""),
