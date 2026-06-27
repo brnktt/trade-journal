@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade-journal"
+version = "0.1.0"
+description = "A trade journal that quantifies execution leaks (realized vs plan-traded R)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+journal = "trade_journal.cli:main"
+
+[tool.setuptools]
+packages = ["trade_journal"]

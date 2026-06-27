@@ -1,0 +1,10 @@
+# personal trade data — never commit
+data/trades.csv
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.DS_Store
