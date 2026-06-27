@@ -7,7 +7,7 @@ import datetime as dt
 
 from . import storage
 from .analytics import analyze, format_report
-from .models import RESULTS, Trade
+from .models import PRICE_ACTION, RESULTS, Trade
 
 
 def _prompt(label: str, default: str = "") -> str:
@@ -32,11 +32,16 @@ def cmd_add(args: argparse.Namespace) -> int:
             date=args.date or today,
             instrument=args.instrument or "",
             timeframe=args.timeframe or "",
+            session=args.session or "ny am",
             direction=args.direction or "",
             setup=args.setup or "",
+            grade=args.grade or 0,
+            price_action=args.price_action or "choppy",
             risk_usd=args.risk or 0.0,
             planned_rr=args.rr if args.rr is not None else 1.3,
             result=args.result,
+            duration_min=args.duration or 0,
+            realized_r=args.realized_r,
             target_hit=args.target_hit,
             dragged_stop=args.dragged_stop,
             out_of_plan=args.out_of_plan,
@@ -46,24 +51,37 @@ def cmd_add(args: argparse.Namespace) -> int:
     else:  # interactive
         print("Log a trade (Enter accepts the [default]).\n")
         date = _prompt("Date", today)
-        instrument = _prompt("Instrument", "ES")
+        instrument = _prompt("Instrument", "NQ")
         timeframe = _prompt("Timeframe", "30s")
+        session = _prompt("Session", "ny am")
         direction = _prompt("Direction (long/short)", "long")
         setup = _prompt("Setup", "")
+        grade = int(_prompt("Setup grade 1-5", "") or 0)
+        price_action = _prompt(f"Price action {PRICE_ACTION}", "choppy").lower()
         risk = float(_prompt("Risk $", "500") or 0)
         rr = float(_prompt("Planned R:R", "1.3") or 0)
         result = _prompt(f"Result {RESULTS}", "be").lower()
+        realized_r = (
+            float(_prompt("What RR was realized?", "0") or 0)
+            if result == "partial" else None
+        )
+        duration_min = int(_prompt("Duration (min)", "") or 0)
         target_hit = _prompt_bool("Did price reach your target?")
         dragged_stop = _prompt_bool("Did you move/drag the stop?")
         out_of_plan = _prompt_bool("Was this trade out-of-plan?")
-        reversal_zone = _prompt_bool("Entered a SIBI/reversal zone before target?")
+        reversal_zone = _prompt_bool("Entered a Reversal zone before target?")
         notes = _prompt("Notes", "")
         trade = Trade(
             date=date,
             instrument=instrument,
             timeframe=timeframe,
             direction=direction,
+            session=session,
             setup=setup,
+            grade=grade,
+            price_action=price_action,
+            duration_min=duration_min,
+            realized_r=realized_r,
             risk_usd=risk,
             planned_rr=rr,
             result=result,
@@ -91,13 +109,29 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _render_table(headers: list[str], rows: list[list], aligns: str) -> str:
+    """Box-drawing table sized to its widest cell — nothing is truncated."""
+    cols = list(zip(*([headers] + rows)))
+    widths = [max(len(str(c)) for c in col) for col in cols]
+
+    def fmt(cells) -> str:
+        return " │ ".join(
+            (str(c).rjust(w) if a == "r" else str(c).ljust(w))
+            for c, w, a in zip(cells, widths, aligns)
+        )
+
+    sep = "─┼─".join("─" * w for w in widths)
+    return "\n".join([fmt(headers), sep, *(fmt(r) for r in rows)])
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     trades = storage.load()[-args.n:]
     if not trades:
         print("No trades logged yet.")
         return 0
-    print(f"{'date':<11}{'setup':<14}{'dir':<6}{'res':<8}"
-          f"{'realR':>7}{'leakR':>7}  flags")
+    headers = ["date", "session", "setup", "dir", "grade", "pa", "result",
+               "dur", "realR", "leakR", "flags"]
+    rows = []
     for t in trades:
         flags = ",".join(
             f for f, on in (
@@ -106,10 +140,13 @@ def cmd_list(args: argparse.Namespace) -> int:
                 ("zone", t.reversal_zone),
             ) if on
         )
-        setup = (t.setup or "-")[:13]
-        print(f"{t.date:<11}{setup:<14}{t.direction:<6}"
-              f"{t.result:<8}{t.effective_realized_r():>+7.2f}"
-              f"{t.leak_r():>7.2f}  {flags}")
+        rows.append([
+            t.date, t.session, t.setup or "-", t.direction, t.grade or "-",
+            t.price_action, t.result, t.duration_min or "-",
+            f"{t.effective_realized_r():+.2f}", f"{t.leak_r():.2f}",
+            flags or "-",
+        ])
+    print(_render_table(headers, rows, aligns="llllrlllrrl"))
     return 0
 
 
@@ -121,11 +158,16 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--date")
     a.add_argument("--instrument")
     a.add_argument("--timeframe")
+    a.add_argument("--session")
     a.add_argument("--direction")
     a.add_argument("--setup")
+    a.add_argument("--grade", type=int, choices=range(1, 6), help="setup quality 1-5")
+    a.add_argument("--price-action", help=f"{'/'.join(PRICE_ACTION)} (prefix ok, e.g. d)")
+    a.add_argument("--duration", type=int, help="time in trade, minutes")
     a.add_argument("--risk", type=float)
     a.add_argument("--rr", type=float)
     a.add_argument("--result", choices=RESULTS)
+    a.add_argument("--realized-r", type=float, help="R actually banked (for partial)")
     a.add_argument("--target-hit", action="store_true")
     a.add_argument("--dragged-stop", action="store_true")
     a.add_argument("--out-of-plan", action="store_true")

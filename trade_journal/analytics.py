@@ -54,7 +54,7 @@ def analyze(trades: list[Trade]) -> Report:
     missed = [t for t in trades if not t.is_executed]
 
     n_exec = len(executed)
-    wins = sum(1 for t in executed if t.result == "win")
+    wins = sum(1 for t in executed if t.is_win)
     realized_r = sum(t.effective_realized_r() for t in executed)
     plan_r = sum(t.plan_r() for t in executed)
     leak_r = sum(t.leak_r() for t in executed)

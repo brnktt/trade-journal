@@ -8,11 +8,12 @@ the stop, exited early, etc. — the difference is the **leak**.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass
 
 # Executed results map to a default R-multiple (a `win` uses planned_rr).
-RESULTS = ("win", "loss", "be", "scratch", "missed")
-_DEFAULT_R = {"loss": -1.0, "be": 0.0, "scratch": 0.0, "missed": 0.0}
+RESULTS = ("win", "loss", "be", "partial", "missed")
+_DEFAULT_R = {"loss": -1.0, "be": 0.0, "partial": 0.0, "missed": 0.0}
+PRICE_ACTION = ("choppy", "directional")
 
 
 def _to_bool(value) -> bool:
@@ -25,6 +26,12 @@ def _to_float(value):
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _to_int(value) -> int:
+    if value is None or value == "":
+        return 0
+    return int(float(value))
 
 
 def _fmt(value) -> str:
@@ -40,11 +47,15 @@ class Trade:
     date: str
     instrument: str = ""
     timeframe: str = ""
+    session: str = "ny am"       # e.g. ny am / ny pm / london
     direction: str = ""          # long / short
     setup: str = ""              # e.g. "5m SIBI"
+    grade: int = 0               # setup quality 1 (lowest) – 5; 0 = ungraded
+    price_action: str = "choppy"  # one of PRICE_ACTION
     risk_usd: float = 0.0
     planned_rr: float = 1.3
     result: str = "be"           # one of RESULTS
+    duration_min: int = 0        # time in trade, minutes (0 = unrecorded)
     target_hit: bool = False     # did price reach the planned target?
     dragged_stop: bool = False   # moved the stop after entry
     out_of_plan: bool = False    # trade not part of the written plan
@@ -62,10 +73,28 @@ class Trade:
             raise ValueError(
                 f"result must be one of {RESULTS}, got {self.result!r}"
             )
+        if self.grade and not 1 <= self.grade <= 5:
+            raise ValueError(f"grade must be 1-5, got {self.grade}")
+        self.price_action = self.price_action.strip().lower()
+        prefix = [p for p in PRICE_ACTION if p.startswith(self.price_action)]
+        if self.price_action and len(prefix) == 1:  # "d" → "directional"
+            self.price_action = prefix[0]
+        if self.price_action not in PRICE_ACTION:
+            raise ValueError(
+                f"price_action must be one of {PRICE_ACTION}, "
+                f"got {self.price_action!r}"
+            )
 
     @property
     def is_executed(self) -> bool:
         return self.result != "missed"
+
+    @property
+    def is_win(self) -> bool:
+        if self.result == "win":
+            return True
+        # a partial counts as a win only if it actually banked R
+        return self.result == "partial" and self.effective_realized_r() > 0
 
     # --- R-multiple accounting -------------------------------------------
     def effective_realized_r(self) -> float:
@@ -101,23 +130,21 @@ class Trade:
             return self.planned_rr
         return 0.0
 
-    def realized_usd(self) -> float:
-        return self.effective_realized_r() * self.risk_usd
-
-    def leak_usd(self) -> float:
-        return self.leak_r() * self.risk_usd
-
     # --- (de)serialization ------------------------------------------------
     def to_row(self) -> dict[str, str]:
         return {
             "date": self.date,
             "instrument": self.instrument,
             "timeframe": self.timeframe,
+            "session": self.session,
             "direction": self.direction,
             "setup": self.setup,
+            "grade": _fmt(self.grade),
+            "price_action": self.price_action,
             "risk_usd": _fmt(self.risk_usd),
             "planned_rr": _fmt(self.planned_rr),
             "result": self.result,
+            "duration_min": _fmt(self.duration_min),
             "target_hit": str(self.target_hit).lower(),
             "dragged_stop": str(self.dragged_stop).lower(),
             "out_of_plan": str(self.out_of_plan).lower(),
@@ -135,11 +162,15 @@ class Trade:
             date=row.get("date", ""),
             instrument=row.get("instrument", ""),
             timeframe=row.get("timeframe", ""),
+            session=row.get("session") or "ny am",
             direction=row.get("direction", ""),
             setup=row.get("setup", ""),
+            grade=_to_int(row.get("grade")),
+            price_action=row.get("price_action") or "choppy",
             risk_usd=_to_float(row.get("risk_usd")) or 0.0,
             planned_rr=_to_float(row.get("planned_rr")) or 0.0,
             result=row.get("result", "be"),
+            duration_min=_to_int(row.get("duration_min")),
             target_hit=_to_bool(row.get("target_hit")),
             dragged_stop=_to_bool(row.get("dragged_stop")),
             out_of_plan=_to_bool(row.get("out_of_plan")),

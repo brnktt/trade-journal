@@ -33,13 +33,3 @@ def append(trade: Trade, path: Path | None = None) -> None:
         if new_file:
             writer.writeheader()
         writer.writerow(trade.to_row())
-
-
-def save_all(trades: list[Trade], path: Path | None = None) -> None:
-    path = path or db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
-        writer.writeheader()
-        for trade in trades:
-            writer.writerow(trade.to_row())
