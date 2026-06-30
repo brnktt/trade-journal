@@ -49,12 +49,53 @@ journal add --setup "5m SIBI" --direction long --risk 500 --rr 1.3 \
 
 ### What it records per trade
 
-- setup, timeframe, direction, risk, planned R:R, result
+- setup, timeframe, session, direction, grade (1–5), price action, risk,
+  planned R:R, result, duration
 - **target_hit** — did price reach your planned target? (this is what unlocks
   the leak calculation)
 - behaviour tags — **dragged_stop**, **out_of_plan**, **reversal_zone**
   (entered a SIBI / reversal zone before target)
+- your own **custom tags** (e.g. `fomo`, `news`) — see [Tags](#tags)
 - missed setups, with the R you'd have made if you'd taken them
+
+## Tags
+
+Every trade can carry tags. Two kinds:
+
+- **Built-in** behaviour tags — `drag`, `oop`, `zone` — set by the
+  `--dragged-stop` / `--out-of-plan` / `--reversal-zone` flags. These drive the
+  leak attribution in `stats` and can't be renamed or deleted.
+- **Custom** tags you define and manage yourself, for slicing trades any way you
+  like (`fomo`, `news`, `revenge`, …).
+
+Manage the custom tag registry:
+
+```bash
+journal tags list                 # show built-in + custom tags
+journal tags add fomo             # create a tag (one word, no spaces)
+journal tags rename fomo tilt     # rename everywhere (registry + all trades)
+journal tags delete news          # delete everywhere (registry + all trades)
+```
+
+Attach tags when logging (the tag must exist first):
+
+```bash
+journal add --setup "revenge" --result loss --dragged-stop --tag fomo
+```
+
+### Tag-based filtering
+
+Filter `list` and `stats` by any tag — built-in or custom. Repeat `--tag` to
+require **all** of them (AND):
+
+```bash
+journal list  --tag zone            # every reversal-zone trade
+journal stats --tag fomo            # leak report for just your fomo trades
+journal list  --tag zone --tag oop  # trades that are both
+```
+
+This is how you test a hypothesis: tag the trades, then re-run `stats` on the
+subset to see if that behaviour is where the leak lives.
 
 ### What the report tells you
 
@@ -67,17 +108,21 @@ journal add --setup "5m SIBI" --direction long --risk 500 --rr 1.3 \
 ## Data
 
 Trades live in `data/trades.csv` (human-readable, git-ignored — your trades
-stay private). Point elsewhere with `TRADE_JOURNAL_DB=/path/to/file.csv`.
+stay private). Point elsewhere with `TRADE_JOURNAL_DB=/path/to/file.csv`. Your
+custom tag registry sits beside it as `<db-name>.tags.json`.
 
 ## Test
 
 ```bash
-python3 -m pytest        # or: python3 -m unittest
+python3 -m unittest discover -s tests
 ```
+
+Pure standard library — no test runner to install. Covers the model
+(validation, R-accounting, serialization), storage (ids, delete, tag
+registry), analytics (the leak math), and the CLI end-to-end.
 
 ## Roadmap
 
 - Equity curve & R-distribution plots
 - Per-setup and per-session breakdowns
-- Tag-based filtering (e.g. all `reversal_zone` trades) to test hypotheses
 - Import from broker / prop-firm trade exports
