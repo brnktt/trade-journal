@@ -65,6 +65,7 @@ class Trade:
     sl: float | None = None
     tp: float | None = None
     realized_r: float | None = None  # optional override; else derived
+    tags: tuple[str, ...] = ()   # user-defined tags (registry-enforced in CLI)
     notes: str = ""
 
     # --- validation -------------------------------------------------------
@@ -155,6 +156,7 @@ class Trade:
             "sl": _fmt(self.sl),
             "tp": _fmt(self.tp),
             "realized_r": _fmt(self.realized_r),
+            "tags": " ".join(self.tags),
             "notes": self.notes,
         }
 
@@ -182,6 +184,7 @@ class Trade:
             sl=_to_float(row.get("sl")),
             tp=_to_float(row.get("tp")),
             realized_r=_to_float(row.get("realized_r")),
+            tags=tuple(row.get("tags", "").split()),
             notes=row.get("notes", ""),
         )
 

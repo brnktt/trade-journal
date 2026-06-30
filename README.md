@@ -52,7 +52,7 @@ journal add --setup "5m SIBI" --direction long --risk 500 --rr 1.3 \
 - setup, timeframe, direction, risk, planned R:R, result
 - **target_hit** — did price reach your planned target? (this is what unlocks
   the leak calculation)
-- behaviour flags — **dragged_stop**, **out_of_plan**, **reversal_zone**
+- behaviour tags — **dragged_stop**, **out_of_plan**, **reversal_zone**
   (entered a SIBI / reversal zone before target)
 - missed setups, with the R you'd have made if you'd taken them
 

@@ -59,7 +59,7 @@ def analyze(trades: list[Trade]) -> Report:
     plan_r = sum(t.plan_r() for t in executed)
     leak_r = sum(t.leak_r() for t in executed)
 
-    # Attribute the leak. A trade may carry more than one flag; we credit the
+    # Attribute the leak. A trade may carry more than one tag; we credit the
     # whole leak to the first matching cause in priority order so the parts sum
     # to the total.
     leak_dragged = sum(t.leak_r() for t in executed if t.dragged_stop)

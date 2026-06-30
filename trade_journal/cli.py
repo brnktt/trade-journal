@@ -46,6 +46,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             dragged_stop=args.dragged_stop,
             out_of_plan=args.out_of_plan,
             reversal_zone=args.reversal_zone,
+            tags=tuple(args.tag or ()),
             notes=args.notes or "",
         )
     else:  # interactive
@@ -70,6 +71,9 @@ def cmd_add(args: argparse.Namespace) -> int:
         dragged_stop = _prompt_bool("Did you move/drag the stop?")
         out_of_plan = _prompt_bool("Was this trade out-of-plan?")
         reversal_zone = _prompt_bool("Entered a Reversal zone before target?")
+        registry = storage.load_tags()
+        hint = f" {registry}" if registry else " (none yet — journal tags add)"
+        tags = _known_only(_prompt(f"Tags{hint}", "").split(), registry)
         notes = _prompt("Notes", "")
         trade = Trade(
             date=date,
@@ -89,6 +93,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             dragged_stop=dragged_stop,
             out_of_plan=out_of_plan,
             reversal_zone=reversal_zone,
+            tags=tags,
             notes=notes,
         )
 
@@ -101,11 +106,35 @@ def cmd_add(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_stats(args: argparse.Namespace) -> int:
+# Built-in behaviour tags (fixed; they drive leak attribution in stats).
+_BUILTIN_TAGS = {
+    "drag": lambda t: t.dragged_stop,
+    "oop": lambda t: t.out_of_plan,
+    "zone": lambda t: t.reversal_zone,
+}
+
+
+def _trade_tags(t: Trade) -> list[str]:
+    """All tags on a trade: active built-ins + custom, in display order."""
+    return [name for name, on in _BUILTIN_TAGS.items() if on(t)] + list(t.tags)
+
+
+def _filterable_tags() -> list[str]:
+    """Tags you can filter by = built-ins + the custom registry."""
+    return list(_BUILTIN_TAGS) + storage.load_tags()
+
+
+def _load_filtered(args: argparse.Namespace) -> list[Trade]:
     trades = storage.load()
-    if args.since:
+    if getattr(args, "since", None):
         trades = [t for t in trades if t.date >= args.since]
-    print(format_report(analyze(trades)))
+    for tag in getattr(args, "tag", None) or []:  # AND across tags
+        trades = [t for t in trades if tag in _trade_tags(t)]
+    return trades
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    print(format_report(analyze(_load_filtered(args))))
     return 0
 
 
@@ -125,26 +154,20 @@ def _render_table(headers: list[str], rows: list[list], aligns: str) -> str:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    trades = storage.load()[-args.n:]
+    trades = _load_filtered(args)[-args.n:]
     if not trades:
         print("No trades logged yet.")
         return 0
     headers = ["id", "date", "session", "setup", "dir", "grade", "pa",
-               "result", "dur", "realR", "leakR", "flags"]
+               "result", "dur", "realR", "leakR", "tags"]
     rows = []
     for t in trades:
-        flags = ",".join(
-            f for f, on in (
-                ("drag", t.dragged_stop),
-                ("oop", t.out_of_plan),
-                ("zone", t.reversal_zone),
-            ) if on
-        )
+        tags = ",".join(_trade_tags(t))
         rows.append([
             t.id, t.date, t.session, t.setup or "-", t.direction,
             t.grade or "-", t.price_action, t.result, t.duration_min or "-",
             f"{t.effective_realized_r():+.2f}", f"{t.leak_r():.2f}",
-            flags or "-",
+            tags or "-",
         ])
     print(_render_table(headers, rows, aligns="rllllrlllrrl"))
     return 0
@@ -156,6 +179,74 @@ def cmd_delete(args: argparse.Namespace) -> int:
         return 0
     print(f"No trade with id {args.id}")
     return 1
+
+
+# --- custom tag registry (CRUD) ------------------------------------------
+def _known_only(names: list[str], registry: list[str]) -> tuple[str, ...]:
+    """Keep names that are registered tags; warn (don't fail) on the rest."""
+    keep = []
+    for n in names:
+        n = n.strip().lower()
+        if n in registry:
+            keep.append(n)
+        elif n:
+            print(f"  ⚠ unknown tag {n!r} (create with: journal tags add {n}) — skipped")
+    return tuple(keep)
+
+
+def _check_new_name(name: str) -> str | None:
+    """Normalize a proposed tag name, or return an error string."""
+    name = name.strip().lower()
+    if not name or " " in name:
+        return "tag name must be one word, no spaces"
+    if name in _BUILTIN_TAGS:
+        return f"{name!r} is a built-in tag and can't be redefined"
+    return None
+
+
+def cmd_tags(args: argparse.Namespace) -> int:
+    registry = storage.load_tags()
+
+    if args.tagcmd == "list":
+        print("Built-in:", ", ".join(_BUILTIN_TAGS))
+        print("Custom  :", ", ".join(registry) if registry else "(none)")
+        return 0
+
+    if args.tagcmd == "add":
+        name = args.name.strip().lower()
+        if err := _check_new_name(name):
+            print(err)
+            return 1
+        if name in registry:
+            print(f"Tag {name!r} already exists")
+            return 1
+        storage.save_tags(registry + [name])
+        print(f"Added tag {name!r}")
+        return 0
+
+    if args.tagcmd == "rename":
+        old, new = args.old.strip().lower(), args.new.strip().lower()
+        if old not in registry:
+            print(f"No custom tag {old!r}")
+            return 1
+        if err := _check_new_name(new):
+            print(err)
+            return 1
+        if new in registry:
+            print(f"Tag {new!r} already exists")
+            return 1
+        storage.rename_tag(old, new)
+        print(f"Renamed {old!r} → {new!r} (updated on all trades)")
+        return 0
+
+    # delete
+    name = args.name.strip().lower()
+    if name not in registry:
+        print(f"No custom tag {name!r}")
+        return 1
+    storage.delete_tag(name)
+    print(f"Deleted tag {name!r} (removed from all trades)")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -180,20 +271,36 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--dragged-stop", action="store_true")
     a.add_argument("--out-of-plan", action="store_true")
     a.add_argument("--reversal-zone", action="store_true")
+    a.add_argument("--tag", action="append", choices=storage.load_tags(),
+                   help="attach a custom tag (repeatable; must exist)")
     a.add_argument("--notes")
     a.set_defaults(func=cmd_add)
 
     s = sub.add_parser("stats", help="print the performance & leak report")
     s.add_argument("--since", help="only trades on/after this date (YYYY-MM-DD)")
+    s.add_argument("--tag", action="append", choices=_filterable_tags(),
+                   help="only trades with this tag (repeatable, AND)")
     s.set_defaults(func=cmd_stats)
 
     l = sub.add_parser("list", help="show recent trades")
     l.add_argument("-n", type=int, default=20, help="how many to show")
+    l.add_argument("--tag", action="append", choices=_filterable_tags(),
+                   help="only trades with this tag (repeatable, AND)")
     l.set_defaults(func=cmd_list)
 
     d = sub.add_parser("delete", help="delete a trade by id")
     d.add_argument("id", type=int)
     d.set_defaults(func=cmd_delete)
+
+    tg = sub.add_parser("tags", help="manage custom tags (add/list/rename/delete)")
+    tgs = tg.add_subparsers(dest="tagcmd", required=True)
+    tgs.add_parser("list", help="show built-in and custom tags")
+    tgs.add_parser("add", help="create a custom tag").add_argument("name")
+    tgr = tgs.add_parser("rename", help="rename a custom tag everywhere")
+    tgr.add_argument("old")
+    tgr.add_argument("new")
+    tgs.add_parser("delete", help="delete a custom tag everywhere").add_argument("name")
+    tg.set_defaults(func=cmd_tags)
 
     return p
 
